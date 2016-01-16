@@ -1,0 +1,1092 @@
+-- I moved all the net stuff out, and deleted unused functions,  but saved beforehand
+-- I've also done work on the new init.lua, so don't just blindly copy it back over pls
+-- --with love, nael
+--do return require'client' end
+
+IN_FORWARD = 1
+IN_BACK    = 2
+IN_LEFT    = 4
+IN_RIGHT   = 8
+
+local connecting = false
+local system = require'system'
+
+local map = require'sandgoon.level'
+require'sandgoon.net'
+local dmi = require'video.dmi'
+local surface = require'video.surface'
+
+local panel = gui.new'panel'
+
+local bind = require'binds'
+
+panel.parent:setPadding( 0, 0, 0, 0 )
+panel:setMargins( 0, 0, 0, 0 )
+panel:dock(DOCK_FILL)
+local log = gui.new('richtext', panel)
+log:dock(DOCK_BOTTOM)
+log:setHeight( 300 )
+log.passthru = true
+log:setBackgroundColor( Color(0,0,0,0))
+log.opacity = 0.75
+log:setMargins( 0, 0, 0, 16 )
+function world(...)
+	log:addText( ... )
+end
+--local floor = Texture'icons/turf/space.dmi'
+--dmi.load(floor)
+--[[
+]]
+--[[local level = {}
+for z = 1, 6 do
+	for x = 1, 300 do
+		for y = 1, 300 do
+			level[ x ] = level[ x ] or {}
+			level[ x ][ y ] = level[ x ][ y ] or {}
+			level[ x ][ y ][ z ] = { icon = floor, state = tostring(math.random(1,24)), dir = 's' }
+		end
+	end
+end]]
+local turf, pathturf = unpack(require'sandgoon.turf')
+
+local level
+require'audio.music'.setQueue{require'audio'.loadSource'sound/ambience/voidambi.ogg'}
+--[[for z = 1,	1 do
+	for x = 1, 100 do
+		for y = 1, 100 do
+			level:setTurf( x, y, z, turf.unsimulated.darkvoid, true )
+		end
+	end
+end]]
+local floor = math.floor
+local mceil = math.ceil
+local round = math.round
+local sin = math.sin
+local cos = math.cos
+local sqrt = math.sqrt
+local mmax = math.max
+local mmin = math.min
+local abs=math.abs
+local lvl
+
+local function passCheck( x, y )
+	lvl = lvl or level.turf[1]
+	local tile = lvl[x]
+	if not tile then return true end
+	tile = tile[y]
+	if not tile then return true end
+	if tile:isOpaque() then return false end
+end
+local audio = require'audio'
+
+
+
+function visibilityCheckEx(x0, y0, x1, y1)
+	local dx, dy = x1-x0, y1-y0;
+	local nx, ny = abs(dx), abs(dy);
+	local sign_x, sign_y = dx > 0 and 1 or -1, dy > 0 and 1 or -1;
+
+	local px, py = x0, y0
+	
+	local ix, iy = 0, 0
+	while(ix < nx or iy < ny) do
+		if ((0.5+ix) / nx == (0.5+iy) / ny) then
+			px = px + sign_x;
+			py = py + sign_y;
+			ix = ix + 1;
+			iy = iy + 1;
+		elseif ((0.5+ix) / nx < (0.5+iy) / ny) then
+			-- next step is horizontal
+			px = px + sign_x;
+			ix = ix + 1;
+		else
+			-- next step is vertical
+			py = py + sign_y;
+			iy = iy + 1;
+		end
+		local validate = passCheck( px, py )
+		if validate ~= nil then return validate == false and (px == x1 and py==y1) or validate end
+	end
+	return true
+end
+
+local function visibilityCheckEx2(x1, y1, x2, y2)
+	local delta_x = x2 - x1
+	local ix = delta_x > 0 and 1 or -1
+	delta_x = 2 * math.abs(delta_x)
+
+	delta_y = y2 - y1
+	iy = delta_y > 0 and 1 or -1
+	delta_y = 2 * math.abs(delta_y)
+	local pass = passCheck( x1, y1 )
+	if( pass ~= nil ) then
+		return pass == false and (x1 == x2 and y1==y2) or pass
+	end
+
+	if delta_x >= delta_y then
+		local error = delta_y - delta_x / 2
+
+		while x1 ~= x2 do
+			if (error >= 0) and ((error ~= 0) or (ix > 0)) then
+				error = error - delta_x
+				y1 = y1 + iy
+			end
+
+			error = error + delta_y
+			x1 = x1 + ix
+
+			local pass = passCheck( x1, y1 )
+			if( pass ~= nil ) then
+				return pass == false and (x1 == x2 and y1==y2) or pass
+			end
+		end
+	else
+		error = delta_x - delta_y / 2
+
+		while y1 ~= y2 do
+			if (error >= 0) and ((error ~= 0) or (iy > 0)) then
+				error = error - delta_y
+				x1 = x1 + ix
+			end
+
+			error = error + delta_x
+			y1 = y1 + iy
+
+			local pass = passCheck( x1, y1 )
+			if( pass ~= nil ) then
+				return pass == false and (x1 == x2 and y1==y2) or pass
+			end
+		end
+	end
+	return true
+end
+
+
+
+local function visibilityCheck( x0, y0, x1, y1 )
+	local level = level.turf[1]
+	
+	
+	--[[local dx = abs(x1-x0)
+	local dy = abs(y1-y0)
+	
+	local x, y = floor(x0), floor(y0)
+	local n = 1
+	local xinc, yinc
+	local err
+	
+	if dx == 0 then
+		xinc = 0
+		err = math.huge
+	elseif x1 > x0 then
+		xinc = 1
+		n = n + floor(x1) - x
+		err = (floor(x0) + 1 - x0) * dx
+	else
+		xinc = -1
+		n = n + x - floor(x1)
+		err = (x0 - floor(x0)) * dx
+	end
+	
+	if dy == 0 then
+		yinc = 0
+		err = err - math.huge
+	elseif y1 > y0 then
+		yinc = 1
+		n = n + floor(y1) - y
+		err = err - (floor(y0) + 1 - y0) * dy
+	else
+		yinc = -1
+		n = n + (y - floor(y1))
+		err = err - (y0 - floor(y0)) * dy
+	end
+	
+	while n > 0 do
+		
+		local tile = level[x]
+		if not tile then return true end--eom
+		tile = tile[y]
+		--io.write(""..x..","..y..":")
+		if not tile then return true end--eom
+		if x == x1 and y == y1 then return true end
+		if tile:isOpaque() == 1 then return false end
+		
+		if err > 0 then
+			y = y + yinc
+			err = err - dx
+		else
+			x = x + xinc
+			err = err + dy
+		end
+		
+		n = n - 1
+	end
+	return true]]
+	
+	
+	---[[
+	local dx = abs(x1 - x0)
+	local dy = abs(y1 - y0)
+	
+	local x = x0
+	local y = y0
+	
+	local n = 1 + dx + dy
+	local xinc = (x1 > x0) and 1 or -1
+	local yinc = (y1 > y0) and 1 or -1
+	
+	local err = dx - dy
+	dx = dx * 2
+	dy = dy * 2
+	local indense = false
+	local die = false
+	local objdense
+	while n > 0 do
+		
+		if( x ~= x1 or y ~= y1 ) then
+			local tile = level[x]
+			if not tile then return true end--eom
+			tile = tile[y]
+			if not tile then return true end--eom
+			
+			if tile.contents then
+				for k, v in pairs(tile.contents) do
+					if v.opaque and not (x0 == v.x and y0 == v.y) then
+						return false
+					end
+				end
+			end
+			
+			if tile:isOpaque() and not (x0 == x and y0 == y)  then
+				return false
+			elseif indense then
+				return false
+			end
+		end
+		
+		if err > 0 then
+			x = x + xinc
+			err = err - dy
+		else
+			y = y + yinc
+			err = err + dx
+		end
+		
+		n = n - 1
+	end
+	return true--[[
+	local dx = math.abs( x1 - x0 )
+	local dy = math.abs( y1 - y0 )
+	local x = math.floor( x0 )
+	local y = math.floor( y0 )
+	
+	local dt_dx = 1/dx
+	local dt_dy = 1/dy
+	local t = 0
+	local n = 1
+	
+	local x_inc, y_inc = 0, 0
+	
+	local tnv, tnh = 0, 0
+	
+	if dx == 0 then x_inc = 0 tnh = dt_dx
+	elseif x1 > x0 then
+		x_inc = 1
+		n = n + math.floor(x1) - x
+		tnh = math.floor(x0) + 1 - x0 * dt_dx
+	else
+		x_inc = -1
+		n = n + x - math.floor( x1 )
+		tnh = (x0 - math.floor(x0)) * dt_dx
+	end
+	
+	if dy == 0 then y_inc = 0 tnv = dt_dy
+	elseif y1 > y0 then
+		y_inc = 1
+		n = n + math.floor(y1) - y
+		tnv = math.floor(y0) + 1 - y0 * dt_dy
+	else
+		y_inc = -1
+		n = n + x - math.floor( y1 )
+		tnv = (y0 - math.floor(y0)) * dt_dy
+	end
+	
+	while n > 0 do
+		local tile = level[x+1]
+		if not tile then return true end
+		tile = tile[y+1]
+		if not tile then return true end
+		if tile:isOpaque() == 1 then return false end
+		
+		if tnv < tnh then
+			y = y + y_inc
+			t = tnv
+			tnv = tnv + dt_dy
+		else
+			x = x + x_inc
+			t = tnh
+			tnh = tnh + dt_dx
+		end
+		n = n - 1
+	end
+	return true]]--]]
+	
+end
+
+local ply
+
+local function say( str )
+	if net.isConnected() then
+		net.sendToServer( NET_ChatMessage, {id=0, message=str} )
+	else
+		ply:say( str )
+	end
+end
+
+local function easyEnumerator( x0, y0, x1, y1, stepSize )
+    if not stepSize then
+        stepSize = 0.75
+    end
+    local ang = math.atan2( y1-y0, x1-x0 )
+    local d = 0
+    local xmem = 0
+    local ymem = 0
+    local first = true
+    return function()
+        if first then
+            first = false
+            return x0,y0
+        end
+        while xmem == round(sin(ang)*d) and ymem == round(cos(ang)*d) do
+            d = d + stepSize
+        end
+        xmem = round(sin(ang)*d)
+        ymem = round(cos(ang)*d)
+        return x0+xmem, y0+ymem
+    end
+end
+
+local function bresenhamEnumerator( x0, y0, x1, y1 )
+    local x, y = x0, y0
+	local sx,sy,dx,dy
+
+	if x < x1 then
+		sx = 1
+		dx = x1 - x
+	else
+		sx = -1
+		dx = x - x1
+	end
+
+	if y < y1 then
+		sy = 1
+		dy = y1 - y
+	else
+		sy = -1
+		dy = y - y1
+	end
+
+	local err, e2 = dx-dy, nil
+
+	e2 = err + err
+	if e2 > -dy then
+		err = err + dy
+		x	= x - sx
+	end
+	if e2 < dx then
+		err = err - dx
+		y	= y - sy
+	end
+
+	return function()
+		while not(x == x1 and y == y1) do
+			e2 = err + err
+			if e2 > -dy then
+				err = err - dy
+				x	= x + sx
+			end
+			if e2 < dx then
+				err = err + dx
+				y	= y + sy
+			end
+			return x,y
+		end
+	end
+end
+
+--1: right
+--2: left
+--4: down
+--8: up
+local dirs = {
+	[-1] = {[-1] = 10, [0] = 2, [1] = 6},
+	[0] = {[-1] = 8, [0] = 0, [1] = 4},
+	[1] = {[-1] = 9, [0] = 1, [1] = 5}
+}
+-- Returns the hitpos and normal
+local function lightTrace( x0, y0, z, x1, y1, xoff, yoff, sx, sy )
+	local lastx, lasty = x0, y0
+    local nx,ny = lastx-x1, lasty-y1
+    local length = sqrt(nx*nx+ny*ny)
+    local roundnx = nx/length
+    local roundny = ny/length
+	for x,y in bresenhamEnumerator( x0, y0, x1, y1 ) do
+        -- first check if we moved diagonally
+        local diffx,diffy = lastx-x, lasty-y
+        if diffx ~= 0 and diffy ~= 0 then
+            -- if we did we have to check if we passed through a diagonal gap
+            local starboardTile = level:getTurf( x, y+diffy, z )
+            local portTile = level:getTurf( x+diffx, y, z )
+            if starboardTile and portTile then
+                if starboardTile:isOpaque() and portTile:isOpaque() then
+                    -- AHOY ICEBERGS
+                    -- DOWN GOES THE TITANTIC
+                    return x, y, diffx, diffy
+                end
+            end
+        end
+		local tile = level:getTurf( x, y, z )
+		if not tile then return x,y,0,0 end
+        if tile.visible == nil then
+            tile.visible = true
+        end
+		if tile:isOpaque() then
+			-- check nearby neighbors to determine wall structure
+			local test = 0
+			-- duuur no bitwise operators, not that it matters here
+			for xd = -1, 1 do
+				for yd = -1, 1 do
+					if xd == 0 or yd == 0 then
+						local tile2 = level:getTurf( x + xd, y + yd, z )
+						if tile2 and tile2:isOpaque() then
+							test = test + dirs[xd][yd]
+						end
+					end
+				end
+			end
+			nx,ny = lastx-x, lasty-y
+			-- DUUUR NO SWITCH STATEMENTS EITHER, THIS IS GETTING BETTER AND BETTER
+			-- o - center
+			-- . - neighbor
+			-- > - ray direction (if relevant)
+			
+			--
+			-- .o.
+			--
+			if test == 3 then
+                nx = 0
+			-- .
+			-- o
+			-- .
+			elseif test == 12 then
+                ny = 0
+			--  .
+			-- .o.
+			--  ^
+            elseif ny == 1 and test == 11 then
+                nx = 0
+			--  v
+			-- .o.
+			--  .
+            elseif ny == -1 and test == 7 then
+                nx = 0
+			--  .
+			-- .o<
+			--  .
+            elseif nx == 1 and test == 14 then
+                ny = 0
+			--  .
+			-- >o.
+			--  .
+            elseif nx == -1 and test == 13 then
+                ny = 0
+            else
+                nx = roundnx
+                ny = roundny
+            end
+            tile = level:getTurf( x-round(nx), y-round(ny), z )
+            if tile and not tile:isOpaque() then
+                tile.visible = false
+            end
+			return x, y, nx, ny
+		end
+        nx, ny = lastx-x, lasty-y
+		lastx, lasty = x, y
+	end
+    return x1, y1, 0, 0
+end
+
+local function debugTrace( x0, y0, z, x1, y1, xoff, yoff, sx, sy )
+	local lastx, lasty = x0, y0
+    local nx,ny = lastx-x1, lasty-y1
+    local length = sqrt(nx*nx+ny*ny)
+    local roundnx = nx/length
+    local roundny = ny/length
+	for x,y in bresenhamEnumerator( x0, y0, x1, y1 ) do
+        surface.setDrawColor( 255, 0, 0, 255 )
+        surface.drawLine( xoff*sx + (x-0.5) * sx, yoff*sy + (y-0.5) * sy, xoff*sx + (lastx-0.5) * sx, yoff*sy + (lasty-0.5) * sy)
+        -- first check if we moved diagonally
+        local diffx,diffy = lastx-x, lasty-y
+        if diffx ~= 0 and diffy ~= 0 then
+            -- if we did we have to check if we passed through a diagonal gap
+            local starboardTile = level:getTurf( x, y+diffy, z )
+            local portTile = level:getTurf( x+diffx, y, z )
+            if starboardTile and portTile then
+                if starboardTile:isOpaque() and portTile:isOpaque() then
+                    -- AHOY ICEBERGS
+                    -- DOWN GOES THE TITANTIC
+                    return x, y, diffx, diffy
+                end
+            end
+        end
+		local tile = level:getTurf( x, y, z )
+		if not tile then return x,y,roundnx,roundny end
+		if tile:isOpaque() then
+			-- check nearby neighbors to determine wall structure
+			local test = 0
+			-- duuur no bitwise operators, not that it matters here
+			for xd = -1, 1 do
+				for yd = -1, 1 do
+					if xd == 0 or yd == 0 then
+						local tile2 = level:getTurf( x + xd, y + yd, z )
+						if tile2 and tile2:isOpaque() then
+							test = test + dirs[xd][yd]
+						end
+					end
+				end
+			end
+			nx,ny = lastx-x, lasty-y
+            surface.setDrawColor( 0, 0, 255, 255 )
+			if test == 3 then--rightleft???
+                surface.drawLine( xoff*sx + (x-0.5) * sx, yoff*sy + (y-0.5) * sy, xoff*sx + (x-0.5) * sx, yoff*sy + (y+ny-0.5) * sy)
+				return x, y, 0, ny
+			elseif test == 12 then--updown?~!?!?!?!?@?~!@!#$!@#!%*@#%!&@#^&
+                surface.drawLine( xoff*sx + (x+nx-0.5) * sx, yoff*sy + (y-0.5) * sy, xoff*sx + (x-0.5) * sx, yoff*sy + (y-0.5) * sy)
+				return x, y, nx, 0
+			end
+			if ny == 1 and test == 11 then
+                surface.drawLine( xoff*sx + (x-0.5) * sx, yoff*sy + (y-0.5) * sy, xoff*sx + (x-0.5) * sx, yoff*sy + (y+ny-0.5) * sy)
+				return x, y, 0, ny
+			end
+			if ny == -1 and test == 7 then
+                surface.drawLine( xoff*sx + (x-0.5) * sx, yoff*sy + (y-0.5) * sy, xoff*sx + (x-0.5) * sx, yoff*sy + (y+ny-0.5) * sy)
+				return x, y, 0, ny
+			end
+			if nx == 1 and test == 14 then
+                surface.drawLine( xoff*sx + (x+nx-0.5) * sx, yoff*sy + (y-0.5) * sy, xoff*sx + (x-0.5) * sx, yoff*sy + (y-0.5) * sy)
+				return x, y, nx, 0
+			end
+			if nx == -1 and test == 13 then
+                surface.drawLine( xoff*sx + (x+nx-0.5) * sx, yoff*sy + (y-0.5) * sy, xoff*sx + (x-0.5) * sx, yoff*sy + (y-0.5) * sy)
+				return x, y, nx, 0
+			end
+            surface.drawLine( xoff*sx + (x-0.5) * sx, yoff*sy + (y-0.5) * sy, xoff*sx + (x+roundnx-0.5) * sx, yoff*sy + (y+roundny-0.5) * sy)
+			return x, y, roundnx, roundny 
+		end
+        nx, ny = lastx-x, lasty-y
+		lastx, lasty = x, y
+	end
+    return x1, y1, 0, 0
+end
+
+-- same as lightTrace but doesn't mark things visible or return normals
+local function rayTrace( x0, y0, z, x1, y1 )
+	local lastx, lasty = x0, y0
+	for x,y in bresenhamEnumerator( x0, y0, x1, y1 ) do
+        -- first check if we moved diagonally
+        local diffx,diffy = lastx-x, lasty-y
+        if diffx ~= 0 and diffy ~= 0 then
+            -- if we did we have to check if we passed through a diagonal gap
+            local starboardTile = level:getTurf( x, y+diffy, z )
+            local portTile = level:getTurf( x+diffx, y, z )
+            if starboardTile and portTile then
+                if starboardTile:isOpaque() and portTile:isOpaque() then
+                    -- AHOY ICEBERGS
+                    -- DOWN GOES THE TITANTIC
+                    return x, y
+                end
+            end
+        end
+		local tile = level:getTurf( x, y, z )
+		if not tile then return x,y end
+		if tile:isOpaque() then
+			return x, y
+		end
+		lastx, lasty = x, y
+	end
+    return x1, y1
+end
+
+-- This should walk along a wall marking it visible, until it hits a corner, another visible tile,
+-- the edge of the screen/world, or if the wall is blocked visually
+local function lightTraceWall( x, y, z, nx, ny, direction, xMin, xMax, yMin, yMax )
+	if nx == 0 and ny == 0 then return end
+	if nx ~= 0 and ny ~= 0 then return end
+	local x0,y0 = x,y
+    local nx0,ny0 = nx*direction, ny*direction
+	-- the normal tells us which way to travel, as does the direction
+	x0 = x0 + ny0
+	y0 = y0 + nx0
+	local tile = level:getTurf( x0, y0, z )
+	while tile and tile:isOpaque() do
+		if not (x0 >= xMin and x0 <= xMax and y0 >=  yMin and y0 <= yMax) then
+			break
+		end
+		-- checking corners
+		local test = level:getTurf( x0+nx, y0+ny, z )
+		-- ENEMY SPOTTED
+		if test and test:isOpaque() then
+            local dx = ply.x-x0
+            local dy = ply.y-y0
+            dx = dx/abs(dx)
+            dy = dy/abs(dy)
+            -- shoot gun
+            local tx, ty = rayTrace( x0+dx, y0+dy, z, ply.x, ply.y )
+            -- BOOM HEADSHOT
+            if tx == ply.x and ty == ply.y then
+                tile.visible = true
+            end
+			break
+        end
+        -- checking visibility
+        -- we push it out a little with the normal to not get blocked by the wall itself
+        local tx, ty = rayTrace( x0+nx, y0+ny, z, ply.x, ply.y )
+        if tx == ply.x and ty == ply.y then
+            tile.visible = true
+        end
+		-- moving on...
+		x0 = x0 + ny0
+		y0 = y0 + nx0
+		tile = level:getTurf( x0, y0, z )
+	end
+end
+
+local function lightTraceToBorder( x, y, z, xMin, xMax, yMin, yMax )
+	for bx = xMin, xMax+1 do
+		local px,py,nx,ny = lightTrace( x, y, z, bx, yMin )
+		local dx,dy,ux,uy = lightTrace( x, y, z, bx, yMax )
+        lightTraceWall( px, py, z, nx, ny, 1, xMin, xMax, yMin, yMax )
+        lightTraceWall( px, py, z, nx, ny, -1, xMin, xMax, yMin, yMax )
+        lightTraceWall( dx, dy, z, ux, uy, 1, xMin, xMax, yMin, yMax )
+        lightTraceWall( dx, dy, z, ux, uy, -1, xMin, xMax, yMin, yMax )
+	end
+	for by = yMin, yMax+1 do
+		local px,py,nx,ny = lightTrace( x, y, z, xMin, by )
+		local dx,dy,ux,uy = lightTrace( x, y, z, xMax, by )
+        lightTraceWall( px, py, z, nx, ny, 1, xMin, xMax, yMin, yMax )
+        lightTraceWall( px, py, z, nx, ny, -1, xMin, xMax, yMin, yMax )
+        lightTraceWall( dx, dy, z, ux, uy, 1, xMin, xMax, yMin, yMax )
+        lightTraceWall( dx, dy, z, ux, uy, -1, xMin, xMax, yMin, yMax )
+	end
+end
+
+local function debugTraceToBorder( x, y, z, xMin, xMax, yMin, yMax, xoff, yoff, sx, sy )
+	for bx = xMin, xMax+1 do
+		debugTrace( x, y, z, bx, yMin, xoff, yoff, sx, sy )
+		debugTrace( x, y, z, bx, yMax, xoff, yoff, sx, sy )
+	end
+	for by = yMin, yMax+1 do
+		debugTrace( x, y, z, xMin, by, xoff, yoff, sx, sy )
+		debugTrace( x, y, z, xMax, by, xoff, yoff, sx, sy )
+	end
+end
+
+local function renderMap( xMin, yMin, xMax, yMax, xoff, yoff, mx, my, camX, camY ) -- TODO: Draw to RT? I don't see the map ever being big enough where this isn't worth it, though.
+-- Definitely render to RT/FB, will be inevitable once shadows and post-processing comes in. -nael
+	local xm =floor( xMin )
+	local ym =floor( yMin )
+	local xmx = mceil( xMax )
+	local ymx = mceil( yMax )
+	
+	audio.setCamPos( camX, camY )
+
+	local sx = (panel.w / 16 / (xmx - xm+1))*16
+	local sy = (panel.h / 16 / (ymx - ym+1))*16
+	if mx then
+		--mx = mx + sx
+		--my = my + sy
+	end
+	local genx,geny
+	if mx then
+		genx = (mx - xoff*sx)/sx
+		geny = (my - yoff*sy)/sy
+		
+	end
+	--print(sx,sy)
+	local z = 1
+	local lvl = level
+	--local level = level.turf
+	-- Clear visibility
+	for x = xm - 1, xmx + 1 do
+		for y = ym - 1, ymx + 1 do
+            local turf = level:getTurf( x, y, z )
+            if turf then turf.visible = nil end
+		end
+	end
+	--local cx = ply.x
+	--local cy = ply.y
+	local cx = round(camX)
+	local cy = round(camY)
+	-- Mark visible shit with rays
+	lightTraceToBorder( cx, cy, z, xMin, xMax+1, yMin, yMax+1 )
+	for x = xm - 1, xmx + 1 do
+		for y = ym - 1, ymx + 1 do
+			--print(sx,sy)
+            local turf = level:getTurf( x, y, z )
+            --if turf and turf.contents then print":D" end
+            --if turf then turf.visible = visibilityCheck( camX, camY, x, y ) end
+            if turf and (turf.visible or NOCLIP) then
+                if not turf.icon then error(turf.path or "fuck: " .. tostring(turf.name)) end
+                
+                dmi.render( turf.icon, turf.icon_state, floor(xoff*sx + (x-1) * sx), floor(yoff*sy + (y-1) * sy), turf.dir, mceil(sx)/32 * turf.icon.dmwidth, mceil(sy)/32 * turf.icon.dmheight, level:getTurf(x,y,z).rng, turf.color)
+            end
+		end
+	end
+	for x = xm - 1, xmx + 1 do
+		for y = ym - 1, ymx + 1 do
+			--print(sx,sy)
+            local turf = level:getTurf(x,y,z)
+            --if turf and turf.contents then print":D" end
+            if turf and (not genx or turf.visible or NOCLIP) then
+                if turf.contents then
+                    --print'turf has contents'
+                    for k, v in pairs( turf.contents ) do
+                        if v.icon then
+                            v:render( floor(xoff*sx + (x-1) * sx), floor(yoff*sy + (y - 1) * sy), sx, sy )
+                        end
+                    end
+                end
+			end
+		end
+	end
+    -- pretty lines
+	--debugTraceToBorder( cx, cy, z, xMin, xMax+1, yMin, yMax+1, xoff, yoff, sx, sy )
+	--[[
+	
+	for k, v in pairs( lvl.entities ) do
+		if v.icon and v.x >= xm and v.x <= xmx + 1 and v.y >= ym and v.y <= ymx + 1 then
+			v:render(  floor(xoff*sx + (v.x-1) * sx), floor(yoff*sy + (v.y-1) * sy), sx, sy )
+		end
+	end]]
+	
+	if mx then
+		return genx, geny, sx, sy
+	end
+end
+
+--[[local activebox = gui.new('textbox')
+activebox:dock(DOCK_TOP)
+activebox:setText('/turf/unsimulated/space')
+local activeTurf = turf.unsimulated.space
+function activebox:onenter(val)
+	if(not pathturf[val]) then
+		self:deny()
+		self:setText(activeTurf.__TURF.__index.path)
+	else activeTurf = pathturf[val] end
+end]]
+
+local zoom = 15
+local x, y = 0, 60
+local down = {}
+local lastMove = 0
+
+function panel:draw()
+    -- JUST
+	local doit
+	local mvX, mvY = 0, 0
+	if down[119] then
+		mvY = -1
+	elseif down[115] then
+		mvY = 1
+	end
+	if down[97] then
+		mvX = -1
+	elseif down[100] then
+		mvX = 1
+	end
+	if (mvX ~= 0 or mvY ~= 0) and ply and not net.isConnected() then
+		ply:Move( mvX, mvY )
+	elseif (mvX ~= 0 or mvY ~= 0) and net.isConnected() and ply and (lastMove < system.getTime()) then
+		net.sendToServer( C2S_Move, {x = mvX, y = mvY} )
+		lastMove = system.getTime() + 0.1
+	end
+	if ply then
+		x = ply.x - zoom/2 - 0.5 + ply.icon_x/32
+		y = ply.y - zoom/2 - 0.5 + ply.icon_y/32
+	end
+	if not net.isConnected() or net.isHosting() then
+		for k, v in pairs( level.entities ) do
+			if( v.Update ) then v:Update() end
+		end
+		local deleted = false
+		while not deleted do
+			deleted = true
+			for k, v in pairs( level.entities ) do
+				if( v.markedForDeletion ) then
+					deleted = false
+					for k2, v2 in pairs( v.loc.contents ) do
+						if v2 == v then table.remove( v.loc.contents, k2 ) break end
+					end
+					table.remove( level.entities, k )
+					if net.isHosting() then
+						net.broadcast( S2C_EntRemove, {id = v.id} )
+					end
+					break
+				end
+			end
+		end
+	else
+		local deleted = false
+		while not deleted do
+			deleted = true
+			for k, v in pairs( level.entities ) do
+				if( v.markedForDeletion ) then
+					deleted = false
+					for k2, v2 in pairs( v.loc.contents ) do
+						if v2 == v then table.remove( v.loc.contents, k2 ) break end
+					end
+					table.remove( level.entities, k )
+					break
+				end
+			end
+		end
+	end
+	if not ply then return end
+	local mx, my, w, h = renderMap( floor(x) + 1, floor(y) + 1, floor(x) + zoom, floor(y) + zoom, -x, -y, self.mx, self.my, ply.x, ply.y )
+	if mx then
+		mx, my = mceil(mx), mceil(my)
+		self.cx, self.cy = mx, my
+		--surface.setDrawColor( 255, 128, 0 )
+		--surface.drawRect( mx, my, w, h )
+		--surface.setTextColor( 255, 255, 255 )
+		local turf = level.turf[1]
+		
+		turf = turf and turf[mx]
+		turf = turf and turf[my]
+		
+		
+		if turf and turf.visible then
+			if turf.contents then turf = turf.contents[1] or turf end
+			surface.drawText( turf and ((turf.name or '') .. "|" .. ((turf.dir or 's')) or "") .. "|" .. turf.path .. "|" .. tostring(turf.visible), 0, self.h - 16 )
+			surface.setDrawColor(255, 128, 0)
+			surface.drawRect( (mx * w - w) - x * w, (my * h - h) - y * h, w, h )
+		else self.cx = nil end
+	else self.cx = nil end
+	if doit then
+		if self.depressed then
+			if (self.ox ~= self.cx or self.oy ~= self.cy) and self.cx then
+
+				level:setTurf( self.cx, self.cy, 1, activeTurf )
+				self.ox = self.cx
+				self.oy = self.cy
+			end
+		end
+	end
+
+end
+
+local sdl = require'lib.sdl2'
+local tween = require'lib.tween'
+NOCLIP = false
+function panel:onkeypress( k, mod, rep )
+	if not rep and bind.onKeyDown( k ) then  return end
+	if( k == sdl.KEY_t ) then
+		local sayDialog = gui.new( 'frame', panel )
+		sayDialog:setTitle( "Say..." )
+		sayDialog:setSize( 400, 75 )
+		sayDialog:center()
+		sayDialog:makePopup()
+		local entry = gui.new( 'textbox', sayDialog )
+		entry:dock( DOCK_TOP )
+		gui.setFocus( entry )
+		function entry:onenter(msg)
+			say(msg)
+			sayDialog:remove()
+			gui.setFocus(panel)
+		end
+	elseif( k == sdl.KEY_v ) then
+		NOCLIP = not NOCLIP
+	elseif( k == sdl.KEY_e ) then
+		level:explode( ply.x, ply.y, ply.z )
+	elseif( k == sdl.KEY_KP_PLUS ) then
+		zoom = zoom - 1
+	elseif k == sdl.KEY_KP_MINUS then
+		zoom = zoom + 1
+	else
+		down[k]=true
+	end
+
+	--if k == 114 then os.exit(0) end
+end
+
+function panel:onmousemove( x, y )
+	self.mx = x
+	self.my = y
+	if self.placing then
+		if (self.ox ~= self.cx or self.oy ~= self.cy) and self.cx then
+
+			level:setTurf( self.cx, self.cy, 1, activeTurf )
+			self.ox = self.cx
+			self.oy = self.cy
+		end
+	end
+end
+
+function panel:onmousedown( btn, x, y )
+	if btn == 1 and self.cx then
+	local mx, my, w, h = renderMap( floor(x) + 1, floor(y) + 1, floor(x) + zoom, floor(y) + zoom, -x, -y, self.mx, self.my, ply.x, ply.y )
+		--level:setTurf( self.cx, self.cy, 1, activeTurf )
+		local t = level.turf[ 1 ][ self.cx ][ self.cy ]
+		if t and t.contents then
+			for k, v in pairs( t.contents ) do
+				if v.Click then
+					v:Click(ply)
+				end
+			end
+		end
+		self.ox = self.cx
+		self.oy = self.cy
+		--self.placing = true
+	elseif btn == 3 and self.cx then
+		local e = level:newEntity( "/obj/machinery/doors/airlock" )
+		if e then
+			e:setpos( self.cx, self.cy, 1 )
+		end
+	elseif btn == 2 and self.cx then
+		local e = level:newEntity( "/obj/machinery/turret" )
+		if e then
+			e:setpos( self.cx, self.cy, 1 )
+		end
+	end
+end
+
+function panel:onmouseup( btn, x, y )
+	self.placing = false
+end
+
+function panel:onscroll( sx, sy )
+	zoom = zoom + sy
+	x = x - sy / 2
+	y = y - sy / 2
+end
+
+function panel:onkeyrelease(k)
+	down[k]=false
+	if bind.onKeyUp( k ) then return end
+end
+
+local console=require'console'
+console.add("host", function(ply, _, args)
+	net.host('*')
+	print("Hosting...")
+end, "Hosts a server")
+console.add("connect", function(ply, _, args)
+	print("Connecting...")
+	net.connect("127.0.0.1",7777)
+end, "Hosts a server")
+console.add("say", function(_,_,_,raw)
+	if( #raw > 0 ) then
+		say(raw)
+	end
+end, "Says something." )
+
+function net.OnClientAccepted( c )
+	for k, v in pairs( level.entities ) do
+		c:send( S2C_NewEntity, {type = v.typeid, x = v.x, y = v.y, id = v.id or 0} )
+	end
+	local them = level:newEntity( "/obj/mob/human" )
+	c.mob = them
+	for k, v in pairs( level.entities ) do
+		if( v.path == "/obj/spawnpoint" ) then
+			them:setpos( v.x, v.y, v.z )
+			break
+		end
+	end
+    --c:send( S2C_NewEntity, {path = them.path, x = them.x, y = them.y, id = them.id or 0} )
+	c:send( S2C_EyeAttach, {id=them.id} )
+end
+
+function net.OnConnected()
+	level:clearEntities()
+	print("PRECONNECT ENTS CLEARED")
+end
+
+function net.onClientDisconnected( client )
+	client.mob:remove()
+end
+
+net.definePacket( "S2C_NewEntity", {{'type',NET_INT}, {'x', NET_INT}, {'y', NET_INT}, {'id', NET_INT}}, function(data)
+    
+	local ent = level:newEntity( data.type, true )
+	
+	ent:setpos( data.x, data.y, 1 )
+	ent.id = data.id
+	if( ent.id == ply ) then
+		ply = ent
+	end
+end, nil, true )
+
+net.definePacket( "S2C_EyeAttach", {{'id', NET_INT}}, function( data )
+	ply = level:entByID( data.id ) or data.id
+	print( "Attached to ", ply, ply.id, ply.x, ply.y )
+end, nil, true )
+
+net.definePacket( "S2C_EntPos", {{'id', NET_INT}, {'x', NET_INT}, {'y', NET_INT}, {'z', NET_INT}}, function( data )
+	local ent = level:entByID( data.id )
+	if ent then ent:setpos( data.x, data.y, data.z ) else print"???" end
+end, nil, true )
+
+net.definePacket( "S2C_EntRemove", {{'id', NET_INT}}, function( data )
+	local ent = level:entByID( data.id )
+	if ent then ent:remove() end
+end, nil, true )
+
+net.definePacket( "S2C_EntMove", {{'id', NET_INT}, {'x', NET_INT}, {'y', NET_INT}}, function( data )
+	local ent = level:entByID( data.id )
+	if not ent then
+		print( "Got invalid entmove packet (" .. data.id .. ")" )
+	else
+		ent:Move( data.x, data.y, true, true )
+	end
+end, nil, true )
+
+net.definePacket( "C2S_Move", {{'x', NET_INT}, {'y', NET_INT}}, function( client, data )
+	local ent = client.mob
+	ent:Move( data.x, data.y )
+end, nil, true )
+
+net.definePacket( "S2C_EntCommand", {{'id', NET_INT}, {'cmd', NET_BYTE}}, function( data, buffer )
+	local ent = level:entByID( data.id )
+    if not ent then return end
+	if data.cmd == ECMD_FLICK_STATE then
+		--flick w/o icon change
+		ent:flick( buffer:ReadString(), nil, true )
+	elseif data.cmd == ECMD_FLICK_ICONSTATE then
+		--flick w/ icon change
+		ent:flick( buffer:ReadString(), buffer:ReadString(), true )
+	end
+end, nil, true )
+
+net.definePacket( "NET_ChatMessage", {{'message',NET_STRING}, {'id', NET_INT}}, function(client, data)
+	client.mob:say( data.message )
+end, function( data )
+	level:entByID( data.id ):say( data.message, true )
+end, true )
+
+net.definePacket( "C2S_UserCommand", {{'buttons', NET_INT}}, function( client, data )
+	
+end, true )
+
+
+level = map.load('maps/giddyup.dmm')
+_G.level = level
+if net.isHosting() then
+	ply = level:newEntity( "/obj/mob/human" )
+	_G.ply = ply
+	for k, v in pairs( level.entities ) do
+		if( v.path == "/obj/spawnpoint" ) then
+			ply:setpos( v.x, v.y, v.z )
+			break
+		end
+	end
+end
