@@ -2,6 +2,8 @@ local M = {}
 local ffi = require( 'ffi' )
 --gfx = require'lib.sdl2gfx'
 function M.init()--956, 956
+	sdl.SetHint("SDL_RENDER_SCALE_QUALITY", "0");
+
 	M.window = sdl.CreateWindow( "SS13 - Launching", sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED, 736, 736, sdl.WINDOW_RESIZABLE )
 	M.renderer = sdl.CreateRenderer( M.window, -1, sdl.RENDERER_ACCELERATED + sdl.RENDERER_PRESENTVSYNC )
 	surface = require( "video.surface" ).init( M.renderer )
