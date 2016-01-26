@@ -136,7 +136,7 @@ local function renderMap( xMin, yMin, xMax, yMax, xoff, yoff, mx, my, camX, camY
 		end
 	end
     -- pretty lines
-	-- fov.debugTraceToBorder( cx, cy, z, xMin, xMax+1, yMin, yMax+1, xoff, yoff, sx, sy )
+	fov.debugTraceToBorder( ply.x, ply.y, z, xMin, xMax, yMin, yMax, xoff, yoff, sx, sy )
 	--[[
 	
 	for k, v in pairs( lvl.entities ) do

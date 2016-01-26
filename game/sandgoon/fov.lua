@@ -1,3 +1,4 @@
+--local bresenham = require'util.smoothray'
 local bresenham = require'util.bresenham'
 
 local floor = math.floor
@@ -14,13 +15,99 @@ local dirs = {
 	[0] = {[-1] = 8, [0] = 0, [1] = 4},
 	[1] = {[-1] = 9, [0] = 1, [1] = 5}
 }
--- Returns the hitpos and normal
-local function lightTrace( x0, y0, z, x1, y1, xoff, yoff, sx, sy )
-	local lastx, lasty = x0, y0
-    local nx,ny = lastx-x1, lasty-y1
+local function getHitNormal( x0, y0, x1, y1, z )
+    local test = level:getTurf( x1, y1, z )
+    if test and not test:isOpaque() then
+        return 0, 0
+    end
+    local nx,ny = x0-x1, y0-y1
     local length = sqrt(nx*nx+ny*ny)
     local roundnx = nx/length
     local roundny = ny/length
+    if nx ~= 0 then
+        nx = nx/abs(nx)
+    end
+    if ny ~= 0 then
+        ny = ny/abs(ny)
+    end
+    -- check nearby neighbors to determine wall structure
+    local test = 0
+    -- duuur no bitwise operators, not that it matters here
+    -- ugh so many TABS
+    for xd = -1, 1 do
+        for yd = -1, 1 do
+            if xd == 0 or yd == 0 then
+                local tile2 = level:getTurf( x1 + xd, y1 + yd, z )
+                if tile2 and tile2:isOpaque() then
+                    -- I'VE COME SO FAR, TO LOSE IT ALL
+                    test = test + dirs[xd][yd]
+                end
+                -- BUT IN THE END
+            end
+            -- DOES IT EVEN MATTEeee
+        end
+        -- eeeer
+    end
+    -- NO SWITCH STATEMENTS EITHER, THIS IS GETTING BETTER AND BETTER
+    -- o - center
+    -- . - neighbor
+    -- > - ray direction (if relevant)
+
+    --  8
+    -- 2o1
+    --  4
+    
+    --
+    -- .o.
+    --
+    if test == 3 then
+        nx = 0
+    -- .
+    -- o
+    -- .
+    elseif test == 12 then
+        ny = 0
+    --  .
+    -- .o.
+    --  ^
+    elseif ny == 1 and test == 11 then
+        nx = 0
+    --  v
+    -- .o.
+    --  .
+    elseif ny == -1 and test == 7 then
+        nx = 0
+    --  .
+    -- .o<
+    --  .
+    elseif nx == 1 and test == 14 then
+        ny = 0
+    --  .
+    -- >o.
+    --  .
+    elseif nx == -1 and test == 13 then
+        ny = 0
+    -- These lines make walls physically like ==D instead of ==O
+    elseif roundnx < 0 and test == 2  then
+        nx = 0
+    elseif roundnx > 0 and test == 1  then
+        nx = 0
+    elseif roundny > 0 and test == 4  then
+        ny = 0
+    elseif roundny < 0 and test == 8  then
+        ny = 0
+    -- TODO: Literal corner cases... corners look like |  instead of | right now
+    --                                                 O=            L=
+    else
+        nx = roundnx
+        ny = roundny
+    end
+    return nx, ny
+end
+
+-- Returns the hitpos and normal
+local function lightTrace( x0, y0, z, x1, y1, xoff, yoff, sx, sy )
+	local lastx, lasty = x0, y0
 	for x,y in bresenham.enum( x0, y0, x1, y1 ) do
 		local tile = level:getTurf( x, y, z )
 		if not tile then return x,y,0,0 end
@@ -46,86 +133,13 @@ local function lightTrace( x0, y0, z, x1, y1, xoff, yoff, sx, sy )
             tile.visible = true
         end
 		if tile:isOpaque() then
-			-- check nearby neighbors to determine wall structure
-			local test = 0
-			-- duuur no bitwise operators, not that it matters here
-            -- ugh so many TABS
-			for xd = -1, 1 do
-				for yd = -1, 1 do
-					if xd == 0 or yd == 0 then
-						local tile2 = level:getTurf( x + xd, y + yd, z )
-						if tile2 and tile2:isOpaque() then
-                            -- I'VE COME SO FAR, TO LOSE IT ALL
-							test = test + dirs[xd][yd]
-						end
-                        -- BUT IN THE END
-					end
-                    -- DOES IT EVEN MATTEeee
-				end
-                -- eeeer
-			end
-			nx,ny = lastx-x, lasty-y
-			-- NO SWITCH STATEMENTS EITHER, THIS IS GETTING BETTER AND BETTER
-			-- o - center
-			-- . - neighbor
-			-- > - ray direction (if relevant)
-
-            --  8
-            -- 1o2
-            --  4
-			
-			--
-			-- .o.
-			--
-			if test == 3 then
-                nx = 0
-			-- .
-			-- o
-			-- .
-			elseif test == 12 then
-                ny = 0
-			--  .
-			-- .o.
-			--  ^
-            elseif ny == 1 and test == 11 then
-                nx = 0
-			--  v
-			-- .o.
-			--  .
-            elseif ny == -1 and test == 7 then
-                nx = 0
-			--  .
-			-- .o<
-			--  .
-            elseif nx == 1 and test == 14 then
-                ny = 0
-			--  .
-			-- >o.
-			--  .
-            elseif nx == -1 and test == 13 then
-                ny = 0
-            -- These lines make walls physically like ==D instead of ==O
-            elseif roundnx < 0 and test == 2  then
-                nx = 0
-            elseif roundnx > 0 and test == 1  then
-                nx = 0
-            elseif roundny > 0 and test == 4  then
-                ny = 0
-            elseif roundny < 0 and test == 8  then
-                ny = 0
-            -- TODO: Literal corner cases... corners look like |  instead of | right now
-            --                                                 O=            L=
-            else
-                nx = roundnx
-                ny = roundny
-            end
+            local nx, ny = getHitNormal( x0, y0, x, y, z )
             tile = level:getTurf( x-round(nx), y-round(ny), z )
             if tile and not tile:isOpaque() then
                 tile.visible = false
             end
 			return x, y, nx, ny
 		end
-        nx, ny = lastx-x, lasty-y
 		lastx, lasty = x, y
 	end
     return x1, y1, 0, 0
@@ -134,10 +148,6 @@ end
 -- Same as lightTrace, but draws debug lines, doesn't have documentation, and doesn't mark visuals.
 local function debugTrace( x0, y0, z, x1, y1, xoff, yoff, sx, sy )
 	local lastx, lasty = x0, y0
-    local nx,ny = lastx-x1, lasty-y1
-    local length = sqrt(nx*nx+ny*ny)
-    local roundnx = nx/length
-    local roundny = ny/length
 	for x,y in bresenham.enum( x0, y0, x1, y1 ) do
         surface.setDrawColor( 255, 0, 0, 255 )
         surface.drawLine( xoff*sx + (x-0.5) * sx, yoff*sy + (y-0.5) * sy, xoff*sx + (lastx-0.5) * sx, yoff*sy + (lasty-0.5) * sy)
@@ -147,6 +157,8 @@ local function debugTrace( x0, y0, z, x1, y1, xoff, yoff, sx, sy )
             local portTile = level:getTurf( x+diffx, y, z )
             if starboardTile and portTile then
                 if starboardTile:isOpaque() and portTile:isOpaque() then
+                    surface.setDrawColor( 0, 0, 255, 255 )
+                    surface.drawLine( xoff*sx + (x-0.5) * sx, yoff*sy + (y-0.5) * sy, xoff*sx + (x+diffx-0.5) * sx, yoff*sy + (y+diffy-0.5) * sy)
                     return x, y, diffx, diffy
                 end
             end
@@ -154,47 +166,11 @@ local function debugTrace( x0, y0, z, x1, y1, xoff, yoff, sx, sy )
 		local tile = level:getTurf( x, y, z )
 		if not tile then return x,y,roundnx,roundny end
 		if tile:isOpaque() then
-			local test = 0
-			for xd = -1, 1 do
-				for yd = -1, 1 do
-					if xd == 0 or yd == 0 then
-						local tile2 = level:getTurf( x + xd, y + yd, z )
-						if tile2 and tile2:isOpaque() then
-							test = test + dirs[xd][yd]
-						end
-					end
-				end
-			end
-			nx,ny = lastx-x, lasty-y
-			if test == 3 then
-                nx = 0
-			elseif test == 12 then
-                ny = 0
-            elseif ny == 1 and test == 11 then
-                nx = 0
-            elseif ny == -1 and test == 7 then
-                nx = 0
-            elseif nx == 1 and test == 14 then
-                ny = 0
-            elseif nx == -1 and test == 13 then
-                ny = 0
-            elseif roundnx < 0 and test == 2  then
-                nx = 0
-            elseif roundnx > 0 and test == 1  then
-                nx = 0
-            elseif roundny > 0 and test == 4  then
-                ny = 0
-            elseif roundny < 0 and test == 8  then
-                ny = 0
-            else
-                nx = roundnx
-                ny = roundny
-            end
+            local nx, ny = getHitNormal( x0, y0, x, y, z )
             surface.setDrawColor( 0, 0, 255, 255 )
             surface.drawLine( xoff*sx + (x-0.5) * sx, yoff*sy + (y-0.5) * sy, xoff*sx + (x+nx-0.5) * sx, yoff*sy + (y+ny-0.5) * sy)
 			return x, y, nx, ny 
 		end
-        nx, ny = lastx-x, lasty-y
 		lastx, lasty = x, y
 	end
     return x1, y1, 0, 0
@@ -242,9 +218,9 @@ local function lightTraceWall( x, y, z, nx, ny, direction, xMin, xMax, yMin, yMa
 	y0 = y0 + nx0
 	local tile = level:getTurf( x0, y0, z )
 	while tile and tile:isOpaque() do
-		if not (x0 >= xMin and x0 <= xMax and y0 >=  yMin and y0 <= yMax) then
-			break
-		end
+        if not (x0 >= xMin and x0 <= xMax and y0 >= yMin and y0 <= yMax) then
+            break
+        end
 		-- checking corners
 		local test = level:getTurf( x0+nx, y0+ny, z )
 		-- ENEMY SPOTTED
@@ -275,6 +251,10 @@ local function lightTraceWall( x, y, z, nx, ny, direction, xMin, xMax, yMin, yMa
 end
 
 local function lightTraceToBorder( x, y, z, xMin, xMax, yMin, yMax )
+    xMin = xMin - 2
+    yMin = yMin - 2
+    xMax = xMax + 2
+    yMax = yMax + 2
 	for bx = xMin, xMax do
 		local px,py,nx,ny = lightTrace( x, y, z, bx, yMin )
 		local dx,dy,ux,uy = lightTrace( x, y, z, bx, yMax )
@@ -294,17 +274,25 @@ local function lightTraceToBorder( x, y, z, xMin, xMax, yMin, yMax )
 end
 
 local function debugTraceToBorder( x, y, z, xMin, xMax, yMin, yMax, xoff, yoff, sx, sy )
-	for bx = xMin, xMax+1 do
+    xMin = xMin - 2
+    yMin = yMin - 2
+    xMax = xMax + 2
+    yMax = yMax + 2
+	for bx = xMin, xMax do
 		debugTrace( x, y, z, bx, yMin, xoff, yoff, sx, sy )
 		debugTrace( x, y, z, bx, yMax, xoff, yoff, sx, sy )
 	end
-	for by = yMin, yMax+1 do
+	for by = yMin, yMax do
 		debugTrace( x, y, z, xMin, by, xoff, yoff, sx, sy )
 		debugTrace( x, y, z, xMax, by, xoff, yoff, sx, sy )
 	end
 end
 
 local function clearVisibility( z, xMin, xMax, yMin, yMax )
+    xMin = xMin - 2
+    yMin = yMin - 2
+    xMax = xMax + 2
+    yMax = yMax + 2
 	for x = xMin, xMax do
 		for y = yMin, yMax do
             local turf = level:getTurf( x, y, z )
