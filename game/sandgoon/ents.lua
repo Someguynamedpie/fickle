@@ -1,6 +1,7 @@
 local icons = require'sandgoon.icons'.loadDMI
 ECMD_FLICK_STATE = 0
 ECMD_FLICK_ICONSTATE = 1
+ECMD_ROTATE = 2
 local function E(t) t.TYPE = 'obj' return t end
 local M = E{
 	--icon, icon_state
@@ -56,8 +57,6 @@ function M:Move( x, y, nodelay, netbypass )
 				if( not t:Enter() ) then return end
 			end
 		end
-		
-		
 	end
 	
 	for k, v in pairs( cardinal ) do
@@ -275,6 +274,7 @@ M.projectile = E{
 		self.vx = math.sin(ang) * 4
 		self.vy = math.cos(ang) * 4
 		self.rot = 180 - math.deg( ang )
+		self:ecmd( self:ecmd( ECMD_ROTATE ):WriteFloat( self.rot ) )
 	end,
 	Update = function(self)
 		self.icon_x = self.icon_x - self.vx

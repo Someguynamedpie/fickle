@@ -189,7 +189,10 @@ while running do
 	end
 	
 	if not DEDICATED then
-		surface.drawText( "FPS: " .. math.floor( fpsAvg ), ScrW - 200, 10 )
+		surface.setTextColor( 255, 255, 255 )
+		surface.setAlphaMultiplier(1)
+		surface.drawText( "FPS: " .. math.floor( fpsAvg ), ScrW - 100, 10 )
+		
 		video.present()
 		audio.update()
 	end

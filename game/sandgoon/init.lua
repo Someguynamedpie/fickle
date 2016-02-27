@@ -136,7 +136,7 @@ local function renderMap( xMin, yMin, xMax, yMax, xoff, yoff, mx, my, camX, camY
 		end
 	end
     -- pretty lines
-	fov.debugTraceToBorder( ply.x, ply.y, z, xMin, xMax, yMin, yMax, xoff, yoff, sx, sy )
+	--fov.debugTraceToBorder( ply.x, ply.y, z, xMin, xMax, yMin, yMax, xoff, yoff, sx, sy )
 	--[[
 	
 	for k, v in pairs( lvl.entities ) do
@@ -440,6 +440,8 @@ net.definePacket( "S2C_EntCommand", {{'id', NET_INT}, {'cmd', NET_BYTE}}, functi
 	elseif data.cmd == ECMD_FLICK_ICONSTATE then
 		--flick w/ icon change
 		ent:flick( buffer:ReadString(), buffer:ReadString(), true )
+	elseif data.cmd == ECMD_ROTATE then
+		ent.rot = buffer:ReadFloat()
 	end
 end, nil, true )
 

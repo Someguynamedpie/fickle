@@ -260,6 +260,6 @@ function M.loadFont( path, options )
 	return font
 end
 
-surface.setFont( M.loadFont( "magdacleanmono-regular.otf" , {size=14} ) )
+surface.setFont( M.loadFont( "roboto-regular.ttf" , {size=14} ) )
 
 return M
