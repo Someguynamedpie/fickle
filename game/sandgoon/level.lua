@@ -47,6 +47,7 @@ function meta:newEntity( path, lon )
 		else
 			meta = paths[ path ]
 		end
+		if not meta then return nil end
 		if not meta.typeid then error"????" end
 		if not meta then
 			error( "Attempt to place invalid entity " .. path )
@@ -81,7 +82,9 @@ function meta:setTurf( x, y, z, turf, nocheck, nogetter )
 	end
 	--print(turf.__index)
 	local et = turf
+	--print(turf.name)
 	local turf = setmetatable( {}, turf ) -- gc hell, turf changing is not efficient.
+	if not turf.isOpaque then print(et.isOpaque) error("Bail bail bail!: ") end
 	if turf.new then
 		turf:new()
 	end
@@ -155,8 +158,9 @@ function M.load( path )
 						tbl[k]=v
 					end
 					--if(key=='aar') then print':D'end
-					--print(key,theTurf)
-					turfs[key] = {__index=setmetatable( tbl, turfPaths[theTurf] )}
+					
+					turfs[key] = {__TURF={__index=setmetatable( tbl, turfPaths[theTurf].__TURF )}}
+					
 
 				else turfs[key] = turfPaths[theTurf] end
 				if not turfPaths[theTurf] then error("couldnt find " .. theTurf) end
@@ -185,6 +189,7 @@ function M.load( path )
 				if objects[str] then
 					for k, v in pairs( objects[ str ] ) do
 						local ent = lvl:newEntity( v, true )
+						if not ent then error("Invalid typepath " .. v) end
 						ent:setpos( x, y, 1 )
 					end
 				end

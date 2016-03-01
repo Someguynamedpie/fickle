@@ -74,14 +74,56 @@ M.space = T{
 M.unsimulated.floor = T{
 	name = "floor",
 	icon = "icons/turf/floors.dmi",
-	icon_state = "floor"
+	icon_state = "floor",
+	dense = false,
+	opaque = false,
+	damaged = T{
+		icon_state = "damaged1",
+		new = function(self)
+			self.icon_state = "damaged" .. math.random(1,5)
+		end
+	},
+	plating = T{
+		icon_state = "plating",
+		damaged = T{
+			new = function(self)
+				self.icon_state = "platingdmg" .. math.random(1,3)
+			end
+		}
+	},
+	fullred = T{
+		icon_state = "fullred"
+	},
+	red = T{
+		icon_state = "red"
+	},
+	white = T{
+		icon_state = "white",
+		bot = T{
+			icon_state = "bot_white"
+		}
+	},
+	caution = T{
+		icon_state = "caution",
+		corner = T{
+			icon_state = "cautioncorner"
+		}
+	},
+	bot = T{
+		icon_state = "bot"
+	}
+	
 }
 M.unsimulated.wall = T{
 	icon = "icons/turf/walls.dmi",
 	icon_state = "",
 	dense = true,
 	opaque = true,
-	name = "wall"
+	name = "wall",
+	ancient = T{
+		name = "ancient wall",
+		icon_state = "ancient"
+	}
 }
 M.unsimulated.void = T{
 	icon = "icons/turf/floors.dmi",

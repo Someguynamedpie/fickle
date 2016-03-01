@@ -165,7 +165,7 @@ local zoom = 15
 local x, y = 0, 60
 local down = {}
 local lastMove = 0
-
+local lastspook = 0
 function panel:draw()
     -- JUST
 	local doit
@@ -258,7 +258,14 @@ function panel:draw()
 			end
 		end
 	end
-
+	
+	
+	if lastspook < system.getTime() then
+		lastspook = system.getTime() + math.random( 65, 100 )
+		print(lastspook)
+		require'audio'.play( 'sound/ambience/voidfx' .. math.random(1,4) .. '.ogg' )
+	end
+	
 end
 
 local sdl = require'lib.sdl2'
@@ -365,6 +372,12 @@ console.add("say", function(_,_,_,raw)
 		say(raw)
 	end
 end, "Says something." )
+console.add( "spawn", function(_,_,args)
+	if not args[1] then print("Give a typepath you dick.") return end
+	local ent = level:newEntity( args[1] )
+	if not ent then print("Unknown typepath: " .. args[1]) return end
+	ent:setpos( ply.x, ply.y, ply.z )
+end, "Spawns an entity where you're standing." )
 
 function net.OnClientAccepted( c )
 	for k, v in pairs( level.entities ) do

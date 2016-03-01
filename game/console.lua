@@ -13,7 +13,7 @@ end
 --TODO: Clean up tokenizer.
 function console.tokenizeArguments( str )
 	local args = {}
-	local quote = '["|\']'
+	local quote = '["\']'
 	local escape = '\\'
 	local inString = false
 	local escapeNext = false
@@ -25,6 +25,9 @@ function console.tokenizeArguments( str )
 	for char in str:gmatch( "." ) do
 		if( checkForComment and char == '/' ) then
 			break
+		elseif checkForComment then
+			curToken = curToken .. "/"
+			checkForComment = false
 		end
 		if( #args > 0 ) then argsRaw = argsRaw .. char end
 		if( escapeNext ) then
@@ -61,7 +64,7 @@ function console.tokenizeArguments( str )
 					table.insert( args, curToken )
 				end
 				curToken = ""
-			elseif( char:find( escape ) ) then
+			elseif( char:find( escape ) and inString ) then
 				escapeNext = true
 			elseif( char == '/' ) then
 				checkForComment = true

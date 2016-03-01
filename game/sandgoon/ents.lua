@@ -163,7 +163,8 @@ M.machinery = E{doors = E{}}
 local audio = require'audio'
 M.machinery.doors.airlock = E{
 	glass = E{icon = 'icons/obj/doors/Doorcom-glass.dmi', opaque = false, transparent = true},
-	icon = 'icons/obj/doors/Doorcom.dmi',
+	maint = E{icon = 'icons/obj/doors/Doormaint.dmi'},
+	icon = 'icons/obj/doors/Doormed.dmi',
 	icon_state = 'door_closed',
 	name = "airlock",
 	dense = true,
@@ -359,7 +360,9 @@ function M.mob:emote( cmd )
 		if turf then
 			turf.color = Color(255,0,0)
 		end
-    end
+    elseif self.type ~= "/obj/mob/human" then
+		world( color_red, self.name, " ", cmd, "\n" )
+	end
 end
 
 M.mob.human = E{
@@ -369,25 +372,28 @@ M.mob.human = E{
 	movedelay = .2,
 	health = 100,
 	dense = true,
-	
+	gib = function(self)
+		self:flick( "gibbed-h", 'icons/mob/mob.dmi' )
+		self:emitSound( "sound/effects/gib.ogg" )
+		self.dense = false
+		self.health = 0
+		fickle.addTimer( "respawn" .. math.random(), 1, 1, function()
+			for k, v in pairs( self.world.entities ) do
+				if( v.path == "/obj/spawnpoint" ) then
+					self:setpos( v.x, v.y, v.z )
+					break
+				end
+			end
+			
+			self.dense = true
+			self:flick( "body_m", 'icons/mob/human.dmi' )
+			self.health = 100
+		end )
+		world( color_green, self.name, color_red, " explodes in a shower of gibs!\n" )
+	end,
 	onHurt = function( self, dmger, dmg )
 		if self.health <= 0 then
-			world( color_green, self.name, color_red, " seizes up and falls gib, their eyes gib...\n" )
-			self:flick( "gibbed-h", 'icons/mob/mob.dmi' )
-			self:emitSound( "sound/effects/gib.ogg" )
-			self.dense = false
-			fickle.addTimer( "respawn" .. math.random(), 1, 1, function()
-				for k, v in pairs( self.world.entities ) do
-					if( v.path == "/obj/spawnpoint" ) then
-						self:setpos( v.x, v.y, v.z )
-						break
-					end
-				end
-				
-				self.dense = true
-				self:flick( "body_m", 'icons/mob/human.dmi' )
-				self.health = 100
-			end )
+			self:gib()
 		end
 		return true
 	end
@@ -399,8 +405,45 @@ M.effect.voidtiles = E{
 	name = "void tiles",
 	new = function(self)
 		self.icon_state = "floattiles" .. math.random(1,6)
-	end
+	end,
+	dense = false
 }
+M.effect.telepad = E{
+	icon = 'icons/obj/stationobjs.dmi',
+	name = "telepad",
+	icon_state = "pad0",
+	dense = false,
+	opaque = false
+}
+M.effect.girder = E{
+	icon = 'icons/obj/structures.dmi',
+	name = 'girder',
+	icon_state = 'girder'
+}
+M.effect.girder = E{
+	icon = 'icons/obj/structures.dmi',
+	name = 'girder',
+	icon_state = 'girder',
+	dense = true
+}
+M.effect.lattice = E{
+	icon = 'icons/obj/structures.dmi',
+	name = 'lattice',
+	icon_state = 'lattice'
+}
+M.table = E{
+	icon = 'icons/obj/table.dmi',
+	name = "table",
+	icon_state = "0",
+	dense = true
+}
+M.window = E{
+	icon = 'icons/obj/window_pyro.dmi',
+	icon_state = "mapwin_r",
+	color = Color( 30, 30, 100 ),
+	dense = true
+}
+
 
 M.mob.critter = E{icon = 'icons/misc/critter.dmi'}
 
@@ -413,7 +456,127 @@ M.mob.critter.eyething = E{
 		self:Move( math.random( -1, 1 ), math.random( -1, 1 ) )
 	end
 }
+local targetPhrases = {
+	"help us please!",
+	"h-hey you.. w-what are you doing",
+	"you can h-help us!",
+	"how did you get here!"
+}
+local wanderPhrases = {
+	"they said nothing would go wrong!",
+	"why didn't they listen!",
+	"shut it down!",
+	"It hurts, oh God, oh God.",
+	"I warned them. I warned them the system wasn't ready.",
+	"Cut the power! It's about to go critical, cut the power!"
+}
 
+local function capimax(str)
+	local ret = ""
+	for i = 1, #str do
+		ret = ret .. (i%2 == 0 and str:sub(i,i):upper() or str:sub(i,i):lower())
+	end
+	return ret
+end
+M.mob.critter.aberration = E{
+	name = "transposed particle field",
+	icon_state = "aberration",
+	movedelay = 2,
+	absorbwait = 0,
+	Update = function(self)
+		if not self.target or not self.target.dense then
+			self.target = nil
+			for k, v in pairs( self.world.entities ) do
+				if( v.path == '/obj/mob/human' and self:distance(v) <= 3 and v.dense ) then
+					self:say( "*lunges towards " .. v.name .. "!" )
+					self.target = v
+					break
+				end
+			end
+		end
+		if self.target and self.target:distance( self ) > 3 then self.target = nil end
+		if self.target and self.absorb and self.absorb < system.getTime() and self.target:distance( self ) <= 1 then
+			self.target:gib()
+			self.target = nil
+			self.absorb = nil
+			self.absorbwait = system.getTime() + 2
+		elseif self.absorb and (not self.target or self.absorb > system.getTime()) and (not self.target or self.target:distance( self ) > 1) then
+			self.absorb = nil
+			self.absorbwait = system.getTime() + 2
+		end
+		
+		if self.target then
+			self.movedelay = 0.3
+			local xdir = math.max( math.min( self.target.x - self.x, 1 ), -1 )
+
+			local ydir = math.max( math.min( self.target.y - self.y, 1 ), -1 )
+			self:Move( xdir, ydir )
+			if( self.target:distance( self ) <= 1.9 and not self.absorb ) then
+				if self.absorbwait and system.getTime() > self.absorbwait then
+					self:say( "*begins to absorb " .. self.target.name .. "!" )
+					self.absorb = system.getTime() + 3
+				end
+			end
+		else
+			self.movedelay = 2
+			self:Move( math.random( -1, 1 ), math.random( -1, 1 ) )
+		end
+		
+	end
+}
+M.mob.critter.scientist = E{
+	name = "transposed scientist",
+	icon_state = "crunched",
+	movedelay = 2,
+	lasthit = 0,
+	takeDamage = function( self, inflictor, dmg )
+		self.health = self.health - dmg
+		if self.health <= 0 then
+			self:remove()
+			local ghost = self.world:newEntity( "/obj/mob/critter/aberration" )
+			if ghost then ghost:setpos( self.x, self.y, self.z ) end
+			return true
+		end
+	end,
+	Update = function(self)
+		if not self.target or not self.target.dense then
+			self.target = nil
+			for k, v in pairs( self.world.entities ) do
+				if( v.path == '/obj/mob/human' and self:distance(v) <= 5 and v.dense ) then
+					self:say( capimax( targetPhrases[math.random(1,#targetPhrases)] ) )
+					self.target = v
+					break
+				end
+			end
+		end
+		if not self.nexttalk or self.target then self.nexttalk = system.getTime() + math.random( 10, 20 ) end
+		if self.nexttalk < system.getTime() and not self.target then
+			self:say( capimax( wanderPhrases[math.random(1,#wanderPhrases)] ) )
+			self.nexttalk = system.getTime() + math.random( 10, 20 )
+		end
+		if self.target and (not self.target.dense or self.target:distance( self ) > 5) then self.target = nil end
+		
+		if self.target then
+			
+			self.movedelay = 0.3
+			local xdir = math.max( math.min( self.target.x - self.x, 1 ), -1 )
+
+			local ydir = math.max( math.min( self.target.y - self.y, 1 ), -1 )
+			self:Move( xdir, ydir )
+			if( self.target:distance( self ) <= 1.9 and self.lasthit < system.getTime() ) then
+				self:say( "*hits " .. self.target.name .. "!" )
+				self.target:takeDamage( self, math.random( 5, 15 ) )
+				self:emitSound( "sound/weapons/punch" .. math.random(1,4) .. ".ogg" )
+				
+				self.lasthit = system.getTime() + 2 + math.random()
+			end
+		else
+			self.movedelay = 2
+			self:Move( math.random( -1, 1 ), math.random( -1, 1 ) )
+		end
+		
+	end
+}
 M.explosion = E{
 	name = "explosion",
 	icon = 'icons/effects/hugeexplosion.dmi',
@@ -460,7 +623,11 @@ local function metaify( t, iters, st, path, parent )
 			--[[local st = setmetatable( {__hack=v}, {__index=rawashell} )
 			metaify( v, iters + 1, subtable2 )
 			subtable[ k ] = st]]
-			path = path .. "/" .. k
+			--if k == "mob" and path == "/obj" then
+				--path = "/mob"
+			--else
+				path = path .. "/" .. k
+			--end
 			v.path = path
 			io.write( ("| "):rep(iters) .. k .. "[" .. (v.icon and 'iconned' or 'uniconned') .. "]: " .. path .. " (id: " .. v.typeid .. ") \n" )
 			local t = {__index = v, typeid = ID}
